@@ -1,0 +1,25 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Scraper output
+scraper/output/
+output/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Node / frontend (later)
+node_modules/
+.next/
+dist/
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
