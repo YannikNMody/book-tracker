@@ -14,8 +14,11 @@ Examples
     python books_scraper.py --pages 3            # first 3 listing pages (60 books)
     python books_scraper.py                      # whole catalogue
     python books_scraper.py --delay 0 --workers 16   # stress test (deliberately impolite)
+    python books_scraper.py --load               # scrape, save JSON, then load into the database
 
-Exit codes: 0 = success, 3 = partial (some pages failed), 1 = failed (no data).
+Exit codes: 0 = success, 3 = partial (some pages failed), 1 = failed (no data),
+            4 = scraped and saved, but loading into the database failed
+                (retry later with: python loader.py <the saved file>).
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ import re
 import sys
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -45,7 +49,7 @@ try:  # lxml is faster; html.parser ships with Python
 except ImportError:
     HTML_PARSER = "html.parser"
 
-SCRAPER_VERSION = "0.1.0"
+SCRAPER_VERSION = "0.2.0"
 DEFAULT_BASE_URL = "https://books.toscrape.com/"
 USER_AGENT = f"BookTrackerBot/{SCRAPER_VERSION} (student project; python-requests)"
 
@@ -56,7 +60,7 @@ QUANTITY_RE = re.compile(r"\((\d+)\s+available\)")
 PAGE_NUMBER_RE = re.compile(r"page-(\d+)\.html$")
 DESCRIPTION_SUFFIX_RE = re.compile(r"\s*\.\.\.\s*more$")
 
-EXIT_SUCCESS, EXIT_FAILED, EXIT_PARTIAL = 0, 1, 3
+EXIT_SUCCESS, EXIT_FAILED, EXIT_PARTIAL, EXIT_LOAD_FAILED = 0, 1, 3, 4
 
 log = logging.getLogger("books_scraper")
 
@@ -473,6 +477,7 @@ def scrape(cfg: ScrapeConfig) -> dict:
     })
 
     run = {
+        "run_uuid": str(uuid.uuid4()),  # lets the loader recognise a file it already loaded
         "source_base_url": cfg.base_url,
         "started_at": started_at,
         "finished_at": utcnow(),
@@ -520,6 +525,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help="first retry wait in seconds, doubles each retry (default 1)")
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help=argparse.SUPPRESS)  # for tests
     parser.add_argument("--output", type=Path, help="output JSON path (default output/run_<timestamp>.json)")
+    parser.add_argument("--load", action="store_true",
+                        help="after saving, load the run into the database (needs DATABASE_URL in .env)")
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     parser.add_argument("-q", "--quiet", action="store_true", help="warnings and errors only")
     return parser
@@ -562,6 +569,19 @@ def main(argv: Optional[list[str]] = None) -> int:
              run["status"], run["books_seen"], run["pages_scraped"], run["error_count"],
              stats["requests"], stats["p95_response_ms"], run["is_full_run"])
     log.info("Saved to %s", output)
+
+    if args.load:
+        import psycopg
+        import loader
+        loader.load_dotenv_if_available()
+        try:
+            with loader.connect() as conn:
+                summary = loader.load_result(conn, result, label=output.name)
+            log.info(loader.format_summary(output.name, summary))
+        except (loader.LoadError, psycopg.Error) as exc:
+            log.error("Loading failed: %s", exc)
+            log.error("The scrape is saved. Retry with: python loader.py %s", output)
+            return EXIT_LOAD_FAILED
 
     return {"success": EXIT_SUCCESS, "partial": EXIT_PARTIAL}.get(run["status"], EXIT_FAILED)
 

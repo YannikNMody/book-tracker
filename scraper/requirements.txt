@@ -1,4 +1,6 @@
 requests>=2.31
 beautifulsoup4>=4.12
-lxml>=5.0        # optional, faster parsing; falls back to Python's html.parser
-pytest>=8.0      # tests only
+lxml>=5.0                # optional, faster parsing; falls back to Python's html.parser
+psycopg[binary]>=3.2     # database connection for the loader
+python-dotenv>=1.0       # reads DATABASE_URL from .env
+pytest>=8.0              # tests only
