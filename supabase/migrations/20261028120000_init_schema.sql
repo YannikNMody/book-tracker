@@ -196,6 +196,7 @@ comment on table public.staging_observations is 'Raw scraped rows per run. Allow
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
+set search_path = ''
 as $$
 begin
     new.updated_at = now();
@@ -259,6 +260,27 @@ create policy "public read" on public.price_history for select to anon, authenti
 create policy "public read" on public.stock_history for select to anon, authenticated using (true);
 create policy "public read" on public.scrape_runs   for select to anon, authenticated using (true);
 -- scrape_errors and staging_observations: no policies → invisible to anon/authenticated
+
+
+-- ---------------------------------------------------------------------
+-- Explicit privileges (defence in depth; don't rely on platform defaults)
+-- anon/authenticated: read-only on public data, nothing else.
+-- service_role (scraper/loader): full access.
+-- ---------------------------------------------------------------------
+revoke all on all tables in schema public from anon, authenticated;
+
+grant select on
+    public.sources,
+    public.categories,
+    public.books,
+    public.price_history,
+    public.stock_history,
+    public.scrape_runs,
+    public.books_current
+to anon, authenticated;
+
+grant all on all tables in schema public to service_role;
+grant usage, select on all sequences in schema public to service_role;
 
 
 -- ---------------------------------------------------------------------
