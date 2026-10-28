@@ -1,7 +1,7 @@
 -- =====================================================================
 -- Book price tracker — initial schema
 -- Target: Supabase (Postgres 15+)
--- Location in repo: supabase/migrations/20261028120000_init_schema.sql
+-- Location in repo: supabase/migrations/20261028125334_init_schema.sql
 --
 -- Design principles
 --   * Surrogate keys (our own ids) as primary keys; the site's identifier
