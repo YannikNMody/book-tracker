@@ -579,7 +579,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 summary = loader.load_result(conn, result, label=output.name)
             log.info(loader.format_summary(output.name, summary))
         except (loader.LoadError, psycopg.Error) as exc:
-            log.error("Loading failed: %s", exc)
+            log.error("Loading failed: %s", loader.scrub(str(exc)))
             log.error("The scrape is saved. Retry with: python loader.py %s", output)
             return EXIT_LOAD_FAILED
 

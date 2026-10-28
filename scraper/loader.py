@@ -28,6 +28,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote, unquote
 
 import psycopg
 from psycopg.types.json import Jsonb
@@ -70,12 +71,50 @@ def _ts(value: Optional[str]) -> Optional[datetime]:
     return datetime.fromisoformat(value) if value else None
 
 
+_SECRETS: set[str] = set()  # passwords to blank out of any message we print
+
+
+def scrub(text: str) -> str:
+    """Remove known secrets from text before it is logged or shown."""
+    for secret in sorted(_SECRETS, key=len, reverse=True):
+        if secret:
+            text = text.replace(secret, "***")
+    return text
+
+
+def normalize_database_url(url: str) -> str:
+    """Percent-encode the password in a postgres:// URL.
+
+    Passwords often contain / $ , @ : # ? which break URL parsing. Users paste
+    the raw password, so encode it here. The host part never contains '@', so
+    the LAST '@' separates credentials from host, and the FIRST ':' in the
+    credentials separates user from password.
+    """
+    url = url.strip().strip('"').strip("'")
+    scheme_end = url.find("://")
+    if scheme_end == -1 or not url[:scheme_end].startswith("postgres"):
+        return url
+    rest = url[scheme_end + 3:]
+    at = rest.rfind("@")
+    if at == -1:
+        return url
+    credentials, host_part = rest[:at], rest[at + 1:]
+    if ":" not in credentials:
+        return url
+    user, password = credentials.split(":", 1)
+    raw_password = unquote(password)
+    encoded = quote(raw_password, safe="")
+    _SECRETS.update({password, raw_password, encoded})
+    return f"{url[:scheme_end + 3]}{user}:{encoded}@{host_part}"
+
+
 def connect(database_url: Optional[str] = None) -> psycopg.Connection:
     url = database_url or os.environ.get("DATABASE_URL")
     if not url:
         raise LoadError("DATABASE_URL is not set. Copy .env.example to .env in the repo root and fill it in.")
-    if "[YOUR-PASSWORD]" in url or "YOUR-PASSWORD" in url:
+    if "YOUR-PASSWORD" in url:
         raise LoadError("DATABASE_URL still contains the password placeholder.")
+    url = normalize_database_url(url)
     options = {"connect_timeout": 15, "application_name": "book-tracker-loader",
                # Supabase's transaction pooler (port 6543) can't use prepared statements
                "prepare_threshold": None}
@@ -83,8 +122,12 @@ def connect(database_url: Optional[str] = None) -> psycopg.Connection:
         options["sslmode"] = "require"
     try:
         return psycopg.connect(url, **options)
-    except psycopg.OperationalError as exc:
-        raise LoadError(f"Could not connect to the database: {str(exc).strip()}") from exc
+    except psycopg.Error as exc:
+        # Never echo the URL: driver messages can contain parts of it
+        raise LoadError(
+            f"Could not connect to the database: {scrub(str(exc).strip())}\n"
+            "Check DATABASE_URL in .env (Supabase -> Connect -> Session pooler) and the password."
+        ) from None
 
 
 def load_result(conn: psycopg.Connection, result: dict, *, dry_run: bool = False,
@@ -190,11 +233,11 @@ def main(argv: Optional[list[str]] = None) -> int:
                 summary = load_result(conn, result, dry_run=args.dry_run, label=path.name)
                 log.info(format_summary(path.name, summary))
     except LoadError as exc:
-        log.error("%s", exc)
+        log.error("%s", scrub(str(exc)))
         return 1
     except psycopg.Error as exc:
         message = getattr(getattr(exc, "diag", None), "message_primary", None) or str(exc)
-        log.error("Database error: %s (nothing from this file was saved)", message)
+        log.error("Database error: %s (nothing from this file was saved)", scrub(message))
         return 1
     return 0
 

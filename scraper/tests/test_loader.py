@@ -26,7 +26,7 @@ TEST_DB = os.environ.get("TEST_DATABASE_URL")
 MIGRATIONS = sorted((Path(__file__).resolve().parents[2] / "supabase" / "migrations").glob("*.sql"))
 SOURCE = "https://books.toscrape.com/"
 
-pytestmark = pytest.mark.skipif(not TEST_DB, reason="TEST_DATABASE_URL not set (needs a disposable Postgres)")
+needs_db = pytest.mark.skipif(not TEST_DB, reason="TEST_DATABASE_URL not set (needs a disposable Postgres)")
 
 SUPABASE_LIKE_SETUP = """
 do $$ begin
@@ -101,6 +101,7 @@ def one(conn, sql, *params):
 # Tests
 # ---------------------------------------------------------------------
 
+@needs_db
 def test_first_load_creates_books_categories_prices_stock(conn):
     summary = loader.load_result(conn, result(1, [obs("a", "51.77"), obs("b", "1053.74", category="Travel")]))
     assert summary["status"] == "loaded"
@@ -113,6 +114,7 @@ def test_first_load_creates_books_categories_prices_stock(conn):
     assert one(conn, "select applied_at is not null from scrape_runs") is True
 
 
+@needs_db
 def test_loading_the_same_file_twice_is_a_no_op(conn):
     r = result(1, [obs("a")])
     loader.load_result(conn, r)
@@ -122,6 +124,7 @@ def test_loading_the_same_file_twice_is_a_no_op(conn):
     assert one(conn, "select count(*) from staging_observations") == 1
 
 
+@needs_db
 def test_old_files_without_run_uuid_are_still_deduplicated(conn):
     r = result(1, [obs("a")])
     del r["run"]["run_uuid"]
@@ -129,6 +132,7 @@ def test_old_files_without_run_uuid_are_still_deduplicated(conn):
     assert loader.load_result(conn, json.loads(json.dumps(r)))["status"] == "skipped"
 
 
+@needs_db
 def test_unchanged_second_run_adds_no_history_rows(conn):
     loader.load_result(conn, result(1, [obs("a"), obs("b")]))
     summary = loader.load_result(conn, result(2, [obs("a"), obs("b")]))
@@ -140,6 +144,7 @@ def test_unchanged_second_run_adds_no_history_rows(conn):
     assert one(conn, "select last_seen_at::date::text from books where external_id='a'") == "2026-10-02"
 
 
+@needs_db
 def test_price_change_closes_old_row_and_opens_new_one(conn):
     loader.load_result(conn, result(1, [obs("a", "10.00"), obs("b", "20.00")]))
     summary = loader.load_result(conn, result(5, [obs("a", "8.50"), obs("b", "20.00")]))
@@ -152,6 +157,7 @@ def test_price_change_closes_old_row_and_opens_new_one(conn):
     assert one(conn, "select price_changes from scrape_runs order by id desc limit 1") == 1
 
 
+@needs_db
 def test_price_going_back_to_an_old_value_is_a_new_period(conn):
     for day, price in [(1, "10.00"), (2, "12.00"), (3, "10.00")]:
         loader.load_result(conn, result(day, [obs("a", price)]))
@@ -159,6 +165,7 @@ def test_price_going_back_to_an_old_value_is_a_new_period(conn):
     assert one(conn, "select count(*) from price_history where valid_to is null") == 1
 
 
+@needs_db
 def test_stock_change_including_quantity_only(conn):
     loader.load_result(conn, result(1, [obs("a", quantity=22), obs("b", quantity=3)]))
     summary = loader.load_result(conn, result(2, [obs("a", quantity=21), obs("b", in_stock=False, quantity=0)]))
@@ -167,6 +174,7 @@ def test_stock_change_including_quantity_only(conn):
         ("a", True, 21), ("b", False, 0)]
 
 
+@needs_db
 def test_runs_must_be_applied_in_chronological_order(conn):
     loader.load_result(conn, result(5, [obs("a", "9.00")]))
     with pytest.raises(psycopg.errors.RaiseException, match="chronological"):
@@ -177,6 +185,7 @@ def test_runs_must_be_applied_in_chronological_order(conn):
     assert one(conn, "select count(*) from staging_observations") == 1
 
 
+@needs_db
 def test_full_run_delists_books_it_did_not_see(conn):
     loader.load_result(conn, result(1, [obs("a"), obs("b"), obs("c")]))
     summary = loader.load_result(conn, result(2, [obs("a"), obs("b")]))
@@ -184,6 +193,7 @@ def test_full_run_delists_books_it_did_not_see(conn):
     assert q(conn, "select external_id from books where not is_active") == [("c",)]
 
 
+@needs_db
 def test_partial_or_limited_runs_never_delist(conn):
     loader.load_result(conn, result(1, [obs("a"), obs("b"), obs("c")]))
     s1 = loader.load_result(conn, result(2, [obs("a")], full=False))
@@ -192,6 +202,7 @@ def test_partial_or_limited_runs_never_delist(conn):
     assert one(conn, "select count(*) from books where is_active") == 3
 
 
+@needs_db
 def test_circuit_breaker_blocks_mass_delisting(conn):
     loader.load_result(conn, result(1, [obs(str(i)) for i in range(10)]))
     summary = loader.load_result(conn, result(2, [obs("0"), obs("1")]))  # 2 of 10 seen: layout broke?
@@ -200,6 +211,7 @@ def test_circuit_breaker_blocks_mass_delisting(conn):
     assert one(conn, "select count(*) from books where is_active") == 10
 
 
+@needs_db
 def test_delisted_book_is_reactivated_when_it_reappears(conn):
     loader.load_result(conn, result(1, [obs("a"), obs("b"), obs("c")]))
     loader.load_result(conn, result(2, [obs("a"), obs("b")]))
@@ -207,12 +219,14 @@ def test_delisted_book_is_reactivated_when_it_reappears(conn):
     assert one(conn, "select is_active from books where external_id='c'") is True
 
 
+@needs_db
 def test_missing_values_do_not_wipe_known_data(conn):
     loader.load_result(conn, result(1, [obs("a")]))
     loader.load_result(conn, result(2, [obs("a", description=None, rating=None, category=None)]))
     assert q(conn, "select description, rating, category from books_current") == [("A book.", 3, "Poetry")]
 
 
+@needs_db
 def test_updated_at_only_moves_when_content_changes(conn):
     loader.load_result(conn, result(1, [obs("a")]))
     conn.commit()
@@ -227,6 +241,7 @@ def test_updated_at_only_moves_when_content_changes(conn):
     assert changed > first
 
 
+@needs_db
 def test_dry_run_leaves_the_database_untouched(conn):
     summary = loader.load_result(conn, result(1, [obs("a")]), dry_run=True)
     assert summary["status"] == "dry_run_rolled_back" and summary["books_new"] == 1
@@ -234,6 +249,7 @@ def test_dry_run_leaves_the_database_untouched(conn):
     assert one(conn, "select count(*) from books") == 0
 
 
+@needs_db
 def test_errors_are_stored_with_the_run(conn):
     err = {"url": "https://x/1", "http_status": 503, "error_type": "http_error",
            "message": "HTTP 503", "attempt": 1, "occurred_at": "2026-10-01T10:01:00+00:00"}
@@ -241,6 +257,7 @@ def test_errors_are_stored_with_the_run(conn):
     assert q(conn, "select http_status, error_type from scrape_errors") == [(503, "http_error")]
 
 
+@needs_db
 def test_unknown_source_is_rejected_cleanly(conn):
     r = result(1, [obs("a")])
     r["run"]["source_base_url"] = "https://other.example/"
@@ -250,6 +267,7 @@ def test_unknown_source_is_rejected_cleanly(conn):
     assert one(conn, "select count(*) from scrape_runs") == 0
 
 
+@needs_db
 def test_frontend_roles_cannot_run_apply_run_or_write(conn):
     loader.load_result(conn, result(1, [obs("a")]))
     conn.commit()
@@ -264,6 +282,7 @@ def test_frontend_roles_cannot_run_apply_run_or_write(conn):
     assert one(conn, "select count(*) from books_current") == 1
 
 
+@needs_db
 def test_end_to_end_scrape_mock_site_then_load(conn):
     from test_books_scraper import MockSite, fast_config, two_page_site
     with MockSite(two_page_site()) as site:
@@ -278,6 +297,7 @@ def test_end_to_end_scrape_mock_site_then_load(conn):
     assert one(conn, "select (stats->'apply'->>'books_new')::int from scrape_runs") == 3
 
 
+@needs_db
 def test_cli_loads_files_oldest_first(tmp_path, conn, monkeypatch):
     newer, older = result(5, [obs("a", "9.00")]), result(1, [obs("a", "10.00")])
     (tmp_path / "b_newer.json").write_text(json.dumps(newer))
@@ -295,6 +315,7 @@ def test_cli_reports_missing_database_url(tmp_path, monkeypatch):
     assert loader.main([str(tmp_path / "r.json"), "-q"]) == 1
 
 
+@needs_db
 def test_scraper_load_flag(tmp_path, conn, monkeypatch):
     from test_books_scraper import MockSite, two_page_site
     monkeypatch.setenv("DATABASE_URL", TEST_DB)
@@ -306,3 +327,45 @@ def test_scraper_load_flag(tmp_path, conn, monkeypatch):
                                    "--output", str(tmp_path / "run.json"), "--load", "-q"])
     assert code == books_scraper.EXIT_SUCCESS
     assert one(conn, "select count(*) from books") == 3
+
+
+# ---------------------------------------------------------------------
+# Connection string handling (no database needed)
+# ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("password", ["a/b$c,d", "p@ss:w#rd?x", "plainPassword123", "50%off/now"])
+def test_password_with_special_characters_is_encoded(password):
+    url = f"postgresql://postgres.abc:{password}@aws-0-eu-west-3.pooler.supabase.com:5432/postgres"
+    from psycopg.conninfo import conninfo_to_dict
+    parsed = conninfo_to_dict(loader.normalize_database_url(url))
+    assert parsed["password"] == password
+    assert parsed["user"] == "postgres.abc"
+    assert parsed["host"] == "aws-0-eu-west-3.pooler.supabase.com"
+    assert parsed["dbname"] == "postgres"
+
+
+def test_already_encoded_password_is_not_double_encoded():
+    url = "postgresql://u:a%2Fb%24c@host:5432/db"
+    from psycopg.conninfo import conninfo_to_dict
+    assert conninfo_to_dict(loader.normalize_database_url(url))["password"] == "a/b$c"
+
+
+def test_quotes_and_whitespace_around_url_are_ignored():
+    url = ' "postgresql://u:pw@host:5432/db" '
+    assert loader.normalize_database_url(url) == "postgresql://u:pw@host:5432/db"
+
+
+def test_connection_errors_never_show_the_password():
+    secret = "S3cr/et$pass,word"
+    url = f"postgresql://postgres.abc:{secret}@127.0.0.1:1/postgres"   # nothing listens on port 1
+    with pytest.raises(loader.LoadError) as info:
+        loader.connect(url)
+    message = str(info.value)
+    assert secret not in message
+    assert "S3cr" not in message and "%2F" not in message
+    assert "Could not connect" in message
+
+
+def test_placeholder_password_is_rejected():
+    with pytest.raises(loader.LoadError, match="placeholder"):
+        loader.connect("postgresql://u:[YOUR-PASSWORD]@host:5432/db")
