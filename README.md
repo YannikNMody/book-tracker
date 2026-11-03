@@ -3,15 +3,16 @@
 Tracks prices and stock of the books on [books.toscrape.com](https://books.toscrape.com) (a scraping sandbox without an API) and keeps their full history in Supabase.
 
 ```
-books.toscrape.com ──scrape──▶ JSON file ──load──▶ Supabase (Postgres)
-                     scraper/books_scraper.py      scraper/loader.py + apply_run()
+books.toscrape.com ──scrape──▶ JSON file ──load──▶ Supabase (Postgres) ──read-only──▶ Streamlit app
+                     scraper/books_scraper.py      scraper/loader.py + apply_run()     frontend/app.py
 ```
 
 | Folder | What it is |
 |---|---|
 | `scraper/` | Scraper, loader and tests. See [scraper/README.md](scraper/README.md). |
+| `frontend/` | Streamlit app to browse books, price history and scrape runs. See [frontend/README.md](frontend/README.md). |
 | `supabase/migrations/` | Database schema, applied to Supabase in filename order. |
-| `.github/workflows/` | `scrape.yml` runs the scraper daily; `tests.yml` runs the tests on every push. |
+| `.github/workflows/` | `scrape.yml` runs the scraper (schedule prepared, switched off); `tests.yml` runs all tests on every push. |
 
 ## Database design
 
@@ -34,3 +35,10 @@ python books_scraper.py --load
 ```
 
 Locally you need a `.env` file in the repo root (copy `.env.example`). Some networks (e.g. university Wi-Fi) block database connections; GitHub Actions is not affected.
+
+The app needs no setup and works on any network, because it reads over HTTPS:
+
+```bash
+cd frontend && source .venv/bin/activate
+streamlit run app.py
+```

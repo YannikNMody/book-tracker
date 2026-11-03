@@ -23,3 +23,7 @@ dist/
 .DS_Store
 .vscode/
 .idea/
+
+# Streamlit local secrets (not needed for this app, but never commit them)
+.streamlit/secrets.toml
+frontend/.streamlit/secrets.toml
