@@ -54,6 +54,7 @@ Compare `run.stats` (status counts, p50/p95/max response times) with a polite ru
 python loader.py output/run_20261028T124756Z.json     # one file
 python loader.py output/*.json                        # all files, applied oldest first
 python loader.py output/run_x.json --dry-run          # do everything, then undo it
+python loader.py --prune-staging-days 30              # delete raw staging rows older than 30 days
 ```
 
 How loading works:
@@ -65,6 +66,7 @@ How loading works:
    - only a complete, successful full run marks unseen books as inactive, and only if it saw at least half of the active catalogue (circuit breaker against a broken page layout wiping everything);
    - runs must be applied oldest first; the database refuses anything else.
 3. Loading the same file twice does nothing (each run has a `run_uuid`).
+4. Raw staging rows are only for debugging; the daily workflow deletes those older than 30 days. The merged history is never pruned.
 
 ## Output format
 

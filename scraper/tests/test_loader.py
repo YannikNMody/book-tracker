@@ -369,3 +369,41 @@ def test_connection_errors_never_show_the_password():
 def test_placeholder_password_is_rejected():
     with pytest.raises(loader.LoadError, match="placeholder"):
         loader.connect("postgresql://u:[YOUR-PASSWORD]@host:5432/db")
+
+
+# ---------------------------------------------------------------------
+# Staging retention
+# ---------------------------------------------------------------------
+
+@needs_db
+def test_prune_removes_only_old_applied_staging_rows(conn):
+    loader.load_result(conn, result(1, [obs("a"), obs("b")]))
+    loader.load_result(conn, result(2, [obs("a"), obs("b")]))
+    conn.execute("update scrape_runs set started_at = now() - interval '40 days', finished_at = now() - interval '40 days' where id = (select min(id) from scrape_runs)")
+    conn.execute("update scrape_runs set started_at = now() - interval '5 days', finished_at = now() - interval '5 days' where id = (select max(id) from scrape_runs)")
+    conn.commit()
+    assert loader.prune_staging(conn, 30) == 2
+    assert one(conn, "select count(*) from staging_observations") == 2
+    # merged data untouched
+    assert one(conn, "select count(*) from books") == 2
+    assert one(conn, "select count(*) from price_history") == 2
+
+
+@needs_db
+def test_prune_via_cli_without_files(conn, monkeypatch):
+    loader.load_result(conn, result(1, [obs("a")]))
+    conn.execute("update scrape_runs set started_at = now() - interval '40 days', finished_at = now() - interval '40 days'")
+    conn.commit()
+    monkeypatch.setenv("DATABASE_URL", TEST_DB)
+    assert loader.main(["--prune-staging-days", "30", "-q"]) == 0
+    assert one(conn, "select count(*) from staging_observations") == 0
+
+
+def test_cli_needs_files_or_prune():
+    with pytest.raises(SystemExit):
+        loader.main([])
+
+
+def test_prune_rejects_zero_days():
+    with pytest.raises(loader.LoadError):
+        loader.prune_staging(None, 0)

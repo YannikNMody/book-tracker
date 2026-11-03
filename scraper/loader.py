@@ -25,7 +25,7 @@ import logging
 import os
 import sys
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote, unquote
@@ -200,6 +200,28 @@ def format_summary(name: str, summary: dict) -> str:
             f"({summary['delisting']}) | errors stored {summary['errors_stored']}")
 
 
+def prune_staging(conn: psycopg.Connection, keep_days: int) -> int:
+    """Delete raw staging rows of applied runs older than keep_days.
+
+    Staging only exists for debugging and re-processing; the merged data lives
+    in books / price_history / stock_history and is never touched here.
+    """
+    if keep_days < 1:
+        raise LoadError("--prune-staging-days must be at least 1")
+    with conn.transaction(), conn.cursor() as cur:
+        cur.execute(
+            """
+            delete from public.staging_observations s
+            using public.scrape_runs r
+            where s.run_id = r.id
+              and r.applied_at is not null
+              and r.started_at < now() - make_interval(days => %s)
+            """,
+            (keep_days,),
+        )
+        return cur.rowcount
+
+
 def load_dotenv_if_available() -> None:
     try:
         from dotenv import find_dotenv, load_dotenv
@@ -210,10 +232,14 @@ def load_dotenv_if_available() -> None:
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Load scraper JSON output into the database.")
-    parser.add_argument("files", nargs="+", type=Path, help="scraper output file(s)")
+    parser.add_argument("files", nargs="*", type=Path, help="scraper output file(s)")
     parser.add_argument("--dry-run", action="store_true", help="run everything, then roll back")
+    parser.add_argument("--prune-staging-days", type=int, metavar="N",
+                        help="after loading, delete raw staging rows of runs older than N days")
     parser.add_argument("-q", "--quiet", action="store_true")
     args = parser.parse_args(argv)
+    if not args.files and args.prune_staging_days is None:
+        parser.error("give at least one file, or --prune-staging-days N")
     logging.basicConfig(level=logging.WARNING if args.quiet else logging.INFO,
                         format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
     load_dotenv_if_available()
@@ -226,12 +252,16 @@ def main(argv: Optional[list[str]] = None) -> int:
             except (OSError, json.JSONDecodeError) as exc:
                 raise LoadError(f"{path}: cannot read JSON ({exc})") from exc
         # History only makes sense oldest-first
-        results.sort(key=lambda item: _ts(item[1].get("run", {}).get("started_at")) or datetime.min)
+        earliest = datetime.min.replace(tzinfo=timezone.utc)
+        results.sort(key=lambda item: _ts(item[1].get("run", {}).get("started_at")) or earliest)
 
         with connect() as conn:
             for path, result in results:
                 summary = load_result(conn, result, dry_run=args.dry_run, label=path.name)
                 log.info(format_summary(path.name, summary))
+            if args.prune_staging_days is not None and not args.dry_run:
+                deleted = prune_staging(conn, args.prune_staging_days)
+                log.info("Pruned %d staging rows older than %d days", deleted, args.prune_staging_days)
     except LoadError as exc:
         log.error("%s", scrub(str(exc)))
         return 1
