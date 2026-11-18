@@ -130,7 +130,7 @@ def show_book(book: dict) -> None:
             f'<div class="detail-price">{money(book.get("price"), currency)}</div>'
             f'{stock_pill(book.get("in_stock"), book.get("quantity"))}',
             unsafe_allow_html=True)
-        description = (detail["book"] or {}).get("description")
+        description = data.clean_description((detail["book"] or {}).get("description"))
         if description:
             st.markdown(f'<p class="muted" style="margin-top:14px">{esc(description[:420])}'
                         f'{"…" if len(description) > 420 else ""}</p>', unsafe_allow_html=True)

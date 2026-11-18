@@ -126,6 +126,18 @@ def fetch_runs(limit: int = 50, reader: Optional[SupabaseReader] = None) -> pd.D
     return df
 
 
+def clean_description(text: Optional[str]) -> Optional[str]:
+    """books.toscrape.com stores most descriptions as a cut-off preview followed by the
+    full text ("...and love th It's hard to imagine..."). Show only the full text.
+    The database keeps the text exactly as scraped."""
+    if not text:
+        return text
+    text = text.strip()
+    head = text[:40]
+    restart = text.find(head, len(head)) if len(head) == 40 else -1
+    return text[restart:] if restart > 0 else text
+
+
 def history_series(history: pd.DataFrame, value: str, until: pd.Timestamp) -> pd.DataFrame:
     """Turn valid_from/valid_to periods into points for a step chart that runs up to `until`."""
     if history.empty:

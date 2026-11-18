@@ -93,6 +93,15 @@ def test_history_series_builds_step_points_up_to_now():
     assert series["date"].iloc[-1] == now
 
 
+def test_clean_description_drops_the_sites_cut_off_preview():
+    full = "It's hard to imagine a world without A Light in the Attic. This now-classic collection of poetry."
+    raw = full[:70] + " " + full          # how the site stores it: preview, then full text
+    assert data.clean_description(raw) == full
+    assert data.clean_description(full) == full          # untouched when nothing repeats
+    assert data.clean_description(None) is None
+    assert data.clean_description("Short text.") == "Short text."
+
+
 def test_fetch_runs_flattens_stats():
     runs = fake_data.runs()
     assert list(runs["p95_ms"]) == [103.5, 363.8, 542.2, 845.3]

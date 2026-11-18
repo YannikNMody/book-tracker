@@ -14,6 +14,20 @@ books.toscrape.com ──scrape──▶ JSON file ──load──▶ Supabase 
 | `supabase/migrations/` | Database schema, applied to Supabase in filename order. |
 | `.github/workflows/` | `scrape.yml` runs the scraper (schedule prepared, switched off); `tests.yml` runs all tests on every push. |
 
+## Screenshots
+
+![Browse](docs/screenshots/browse.png)
+*Browse: search, filter and sort 1,000 books*
+
+![Book details](docs/screenshots/details.png)
+*Book details with price history*
+
+![Insights](docs/screenshots/insights.png)
+*Insights: categories, ratings and price bands*
+
+![Pipeline](docs/screenshots/pipeline.png)
+*Pipeline: every scrape run with changes and site response time*
+
 ## Database design
 
 - `books`, `categories`, `sources`: the catalogue. Books are matched on the site's UPC (`external_id`); our own `id` is the primary key.
