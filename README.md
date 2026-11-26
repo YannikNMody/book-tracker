@@ -135,11 +135,19 @@ Tested with Python 3.12 (GitHub Actions) and requests 2.34.2, beautifulsoup4 4.1
 
 ## Learning
 
-<!-- TODO (Yannik): write this section yourself, in your own words. -->
-<!-- 1. Big picture: designing the schema first ("skimer" = schema), because it decides what the scraper has to collect; UPC as the site's ID vs. our own primary key; history rows only when something changes. -->
-<!-- 2. Challenge: the database password with special characters broke the connection URL and an error printed it; treated as leaked, reset it, and the loader now encodes passwords and blanks secrets out of messages. -->
+**Designing the schema first**
 
-_To be written._
+- My professor talked about the "schema" (I first wrote it down as "skimer"): which tables exist, their columns and how they link. I learned to design it before finishing the scraper, because the schema decides what the scraper has to collect. Tracking stock over time, for example, means visiting every book's detail page.
+- I asked whether to use the site's UPC or our own ID. The answer is both: our own `id` is the primary key, and the UPC is stored as `external_id` and only used to recognise a book again. If the site changed its IDs, only the matching would change, not every link between tables.
+- The history tables only get a new row when a value changes (`valid_from` / `valid_to`), so every row means something. Because the sandbox site never changes, this logic is proven by tests that simulate price changes.
+- My question "will the site crash?" became something the database measures: every run stores response times and every failed request is logged.
+
+**Challenge: a password in an error message**
+
+- My database password contained characters like `/`, `$` and `,`, which broke the connection URL, and the error message printed part of the password in the terminal.
+- I treated the password as leaked and reset it. The loader now encodes special characters itself and removes secrets from every message it prints.
+- Lesson: error messages can leak secrets, and a secret that has been shown once counts as compromised.
+- Right after, the connection timed out on university Wi-Fi, which blocks the database port. A timeout points to the network; a wrong password gives "authentication failed".
 
 ## Limitations and assistance
 
@@ -154,7 +162,7 @@ _To be written._
 
 **AI assistance**
 
-All code in this project was written by AI. I used Claude chat (Opus 5.5) to brainstorm, plan the features and design, and write implementation prompts and guidelines; for this project the chat also wrote much of the code directly. Claude Code (Sonnet 5) implemented, ran, tested and committed the changes in my repository. My part was deciding what to build, making the calls when trade-offs came up, testing the results by hand, and reviewing what went into the repo. Commits made by Claude during submission prep are authored as "Claude".
+All code in this project was written by AI. I used Claude chat (Opus 5.5) to brainstorm, plan the features and design, and write implementation prompts and guidelines; for this project the chat also wrote much of the code directly. Claude Code (Sonnet 5) implemented, ran, tested and committed the changes in my repository. My part was deciding what to build, making the calls when trade-offs came up, testing the results by hand, and reviewing what went into the repo. Commits made by Claude during submission prep are authored as "Claude". The README text, including the Learning section, was drafted by Claude from my project chats and notes; I reviewed and approved it.
 
 **Other sources**
 
