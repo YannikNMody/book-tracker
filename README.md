@@ -96,7 +96,6 @@ streamlit run app.py
 
 The app opens at http://localhost:8501 and reads the existing data from my Supabase project over HTTPS. Run it from inside `frontend/` so the theme in `.streamlit/config.toml` is used.
 
-<!-- TODO: final wording depends on the professor's answer about Supabase pausing. -->
 **If the app shows a connection error:** the database runs on Supabase's free plan, which pauses projects after about a week of low activity. The screenshots show what the app looks like with data.
 
 ### Option B: run the whole pipeline with your own database
